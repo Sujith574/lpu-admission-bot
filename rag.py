@@ -1,6 +1,6 @@
 import os
-import subprocess
 
+from google.cloud import storage
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from google import genai
@@ -41,22 +41,36 @@ client = genai.Client(
 MODEL_NAME = "models/gemini-2.5-flash"
 
 # =====================================================
-# VECTOR STORE (DOWNLOAD FROM GCS IF MISSING)
+# VECTOR STORE DOWNLOAD (CLOUD RUN SAFE)
+# =====================================================
+def download_vectorstore():
+    client = storage.Client()
+    bucket = client.bucket("lpu-admission-bot-data")
+
+    blobs = client.list_blobs(bucket, prefix="vectorstore/")
+
+    os.makedirs("vectorstore", exist_ok=True)
+
+    for blob in blobs:
+        if blob.name.endswith("/"):
+            continue
+
+        local_path = blob.name.replace("vectorstore/", "")
+        local_file = os.path.join("vectorstore", local_path)
+
+        os.makedirs(os.path.dirname(local_file), exist_ok=True)
+        blob.download_to_filename(local_file)
+
+# Download only once
+if not os.path.exists("vectorstore/index.faiss"):
+    download_vectorstore()
+
+# =====================================================
+# LOAD VECTOR STORE
 # =====================================================
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
-
-# Download vectorstore from Cloud Storage if not present
-if not os.path.exists("vectorstore"):
-    subprocess.run(
-        [
-            "gsutil", "-m", "cp", "-r",
-            "gs://lpu-admission-bot-data/vectorstore",
-            "vectorstore"
-        ],
-        check=True
-    )
 
 db = FAISS.load_local(
     "vectorstore",
@@ -82,9 +96,7 @@ Rules:
 def answer(query: str) -> str:
     q = query.lower().strip()
 
-    # -------------------------------------------------
-    # META / BOT IDENTITY QUESTIONS
-    # -------------------------------------------------
+    # ---------------- META QUESTIONS ----------------
     if any(x in q for x in [
         "who developed you",
         "who created you",
@@ -100,9 +112,7 @@ def answer(query: str) -> str:
             "and other LPU-related queries."
         )
 
-    # -------------------------------------------------
-    # HARD FACT OVERRIDES
-    # -------------------------------------------------
+    # ---------------- HARD FACT OVERRIDES ----------------
     if "where is lpu" in q or "location of lpu" in q:
         return LPU_FACTS["location"]
 
@@ -118,9 +128,7 @@ def answer(query: str) -> str:
     if "pro chancellor" in q or "pro-chancellor" in q:
         return LPU_FACTS["pro_chancellor"]
 
-    # -------------------------------------------------
-    # FEES UX (SAFE & OFFICIAL)
-    # -------------------------------------------------
+    # ---------------- FEES UX ----------------
     if "fee" in q or "fees" in q:
         return (
             "The fee structure at Lovely Professional University varies depending on the "
@@ -129,14 +137,9 @@ def answer(query: str) -> str:
             "I recommend checking the official LPU admission portal or applying for LPUNEST."
         )
 
-    # -------------------------------------------------
-    # INTENT CLASSIFICATION
-    # -------------------------------------------------
+    # ---------------- INTENT ----------------
     intent = classify_query(query)
 
-    # -------------------------------------------------
-    # NEGATIVE / HOSTILE QUERIES
-    # -------------------------------------------------
     if intent == "negative":
         return (
             "I understand your concern. Lovely Professional University continuously "
@@ -146,18 +149,13 @@ def answer(query: str) -> str:
             "I’ll be glad to assist."
         )
 
-    # -------------------------------------------------
-    # UNRELATED QUERIES
-    # -------------------------------------------------
     if intent == "unrelated":
         return (
             "I’m here to help with queries related to Lovely Professional University. "
             "Please feel free to ask about admissions, courses, campus life, or facilities."
         )
 
-    # -------------------------------------------------
-    # RAG RETRIEVAL
-    # -------------------------------------------------
+    # ---------------- RAG ----------------
     docs = db.similarity_search(query, k=8)
     context = "\n".join(d.page_content for d in docs)
 
@@ -171,9 +169,6 @@ User Question:
 {query}
 """
 
-    # -------------------------------------------------
-    # LLM CALL WITH FAIL-SAFE
-    # -------------------------------------------------
     try:
         response = client.models.generate_content(
             model=MODEL_NAME,
