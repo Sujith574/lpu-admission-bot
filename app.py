@@ -2,10 +2,10 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from rag import answer
 
-app = FastAPI(title="LPU Admission Bot API")
+app = FastAPI()
 
 class ChatRequest(BaseModel):
-    question: str
+    message: str
 
 @app.get("/")
 def health():
@@ -13,4 +13,5 @@ def health():
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    return {"answer": answer(req.question)}
+    reply = answer(req.message)
+    return {"reply": reply}
