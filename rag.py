@@ -1,4 +1,6 @@
 import os
+import subprocess
+
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from google import genai
@@ -39,11 +41,22 @@ client = genai.Client(
 MODEL_NAME = "models/gemini-2.5-flash"
 
 # =====================================================
-# VECTOR STORE
+# VECTOR STORE (DOWNLOAD FROM GCS IF MISSING)
 # =====================================================
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
+
+# Download vectorstore from Cloud Storage if not present
+if not os.path.exists("vectorstore"):
+    subprocess.run(
+        [
+            "gsutil", "-m", "cp", "-r",
+            "gs://lpu-admission-bot-data/vectorstore",
+            "vectorstore"
+        ],
+        check=True
+    )
 
 db = FAISS.load_local(
     "vectorstore",
@@ -70,7 +83,7 @@ def answer(query: str) -> str:
     q = query.lower().strip()
 
     # -------------------------------------------------
-    # META / BOT IDENTITY QUESTIONS (HUMAN RESPONSE)
+    # META / BOT IDENTITY QUESTIONS
     # -------------------------------------------------
     if any(x in q for x in [
         "who developed you",
