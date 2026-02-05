@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+
+vectorstore/
+data/
+
+.env
+.DS_Store
