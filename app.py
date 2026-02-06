@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from rag import answer
 
 app = FastAPI()
 
@@ -12,4 +13,4 @@ def health():
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    return {"reply": f"Echo: {req.message}"}
+    return {"reply": answer(req.message)}
