@@ -13,4 +13,5 @@ def health():
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    return {"reply": answer(req.message)}
+    reply = answer(req.message)
+    return {"reply": reply}
