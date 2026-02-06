@@ -5,10 +5,10 @@ from rag import answer
 
 app = FastAPI()
 
-# ✅ CORS — REQUIRED
+# ✅ CORS FIX (MANDATORY)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # OK for now, lock later
+    allow_origins=["*"],  # allow all (safe for this use)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
