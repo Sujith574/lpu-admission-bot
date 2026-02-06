@@ -1,94 +1,112 @@
 import os
-from google.cloud import storage
+from typing import Optional
+
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
+from google.cloud import storage
 from google import genai
 from guardrails import classify_query
 
-# ---------------- HARD FACTS ----------------
+# ================= HARD FACTS =================
 LPU_FACTS = {
     "location": "Lovely Professional University is located in Phagwara, Punjab, India near NH-44.",
     "address": "Lovely Professional University, Jalandhar–Delhi G.T. Road, Phagwara, Punjab 144411, India.",
-    "naac": "LPU is accredited by NAAC with A++ grade (CGPA 3.68).",
-    "nirf": "LPU is ranked 31st in India by NIRF.",
+    "naac": "LPU is NAAC accredited with A++ grade (CGPA 3.68).",
+    "nirf": "LPU is ranked among the top universities in India by NIRF.",
     "pro_chancellor": "Dr. Ashok Kumar Mittal is the Pro-Chancellor of LPU."
 }
 
-# ---------------- GEMINI ----------------
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 MODEL_NAME = "models/gemini-2.5-flash"
 
-# ---------------- VECTORSTORE ----------------
-def load_vectorstore():
+# ================= LAZY GLOBALS =================
+_db: Optional[FAISS] = None
+_embeddings: Optional[HuggingFaceEmbeddings] = None
+_client: Optional[genai.Client] = None
+
+
+# ================= INIT FUNCTIONS =================
+def _init_gemini():
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+
+def _download_vectorstore():
     if os.path.exists("vectorstore/index.faiss"):
         return
 
-    storage_client = storage.Client()
-    bucket = storage_client.bucket("lpu-admission-bot-data")
-    blobs = storage_client.list_blobs(bucket, prefix="vectorstore/")
+    client = storage.Client()
+    bucket = client.bucket("lpu-admission-bot-data")
 
     os.makedirs("vectorstore", exist_ok=True)
 
-    for blob in blobs:
+    for blob in client.list_blobs(bucket, prefix="vectorstore/"):
         if blob.name.endswith("/"):
             continue
         path = blob.name.replace("vectorstore/", "")
-        dest = os.path.join("vectorstore", path)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        blob.download_to_filename(dest)
+        local = os.path.join("vectorstore", path)
+        os.makedirs(os.path.dirname(local), exist_ok=True)
+        blob.download_to_filename(local)
 
-load_vectorstore()
 
-embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
+def _init_vectorstore():
+    global _db, _embeddings
+    if _db is not None:
+        return
 
-db = FAISS.load_local(
-    "vectorstore",
-    embeddings,
-    allow_dangerous_deserialization=True
-)
+    _download_vectorstore()
 
-SYSTEM_PROMPT = """
-You are an official admission assistant of Lovely Professional University (LPU).
-Be clear, professional, and LPU-focused.
-"""
+    _embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
 
+    _db = FAISS.load_local(
+        "vectorstore",
+        _embeddings,
+        allow_dangerous_deserialization=True
+    )
+
+
+# ================= MAIN ANSWER =================
 def answer(query: str) -> str:
-    q = query.lower()
+    q = query.lower().strip()
 
-    # ---- Identity ----
-    if "who" in q and "you" in q:
-        return (
-            "I’m a virtual admission assistant built to help with "
-            "Lovely Professional University admissions and information."
-        )
-
-    # ---- Hard facts ----
+    # Hard facts
     for key in LPU_FACTS:
         if key.replace("_", " ") in q:
             return LPU_FACTS[key]
 
-    if "fee" in q:
+    intent = classify_query(query)
+
+    if intent == "negative":
         return (
-            "Fees vary by program and scholarships through LPUNEST. "
-            "Please check the official LPU admission portal for exact details."
+            "Lovely Professional University continuously improves academic quality, "
+            "infrastructure, and student outcomes. If you have a specific concern, I can help."
         )
 
-    intent = classify_query(query)
-    if intent == "negative":
-        return "LPU continuously improves academics, placements, and infrastructure."
-
     if intent == "unrelated":
-        return "Please ask about LPU admissions, courses, or campus life."
+        return "I can help with admissions, courses, rankings, campus life, and facilities at LPU."
 
-    docs = db.similarity_search(query, k=6)
+    # Lazy init (CRITICAL)
+    _init_gemini()
+    _init_vectorstore()
+
+    docs = _db.similarity_search(query, k=6)
     context = "\n".join(d.page_content for d in docs)
 
-    prompt = f"{SYSTEM_PROMPT}\n\nContext:\n{context}\n\nQuestion:\n{query}"
+    prompt = f"""
+You are an official LPU admission assistant.
 
-    try:
-        res = client.models.generate_content(model=MODEL_NAME, contents=prompt)
-        return res.text
-    except Exception:
-        return "I’m having trouble answering right now. Please try again."
+Context:
+{context}
+
+Question:
+{query}
+"""
+
+    response = _client.models.generate_content(
+        model=MODEL_NAME,
+        contents=prompt
+    )
+
+    return response.text
