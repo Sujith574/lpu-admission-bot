@@ -1,25 +1,41 @@
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import FAISS
+from langchain.embeddings import OpenAIEmbeddings
 import json
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
+import os
 
-with open("data/lpu_pages.json", "r", encoding="utf-8") as f:
-    pages = json.load(f)
+EMBEDDING_MODEL = OpenAIEmbeddings(model="text-embedding-3-large")
 
-texts = [p["content"] for p in pages]
+def load_scraped_data(file_path):
+    with open(file_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-splitter = RecursiveCharacterTextSplitter(
-    chunk_size=600,
-    chunk_overlap=80
-)
+def create_vector_store(data):
+    texts = []
+    metadatas = []
 
-docs = splitter.create_documents(texts)
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=700,
+        chunk_overlap=120
+    )
 
-embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
+    for page in data:
+        chunks = splitter.split_text(page["content"])
 
-db = FAISS.from_documents(docs, embeddings)
-db.save_local("vectorstore")
+        for chunk in chunks:
+            texts.append(chunk)
+            metadatas.append({
+                "url": page["url"]
+            })
 
-print("Vector store created")
+    vector_store = FAISS.from_texts(
+        texts,
+        embedding=EMBEDDING_MODEL,
+        metadatas=metadatas
+    )
+
+    vector_store.save_local("lpu_vector_store")
+
+if __name__ == "__main__":
+    data = load_scraped_data("scraped_data.json")
+    create_vector_store(data)
