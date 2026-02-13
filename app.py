@@ -1,17 +1,19 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from rag import answer
+from flask import Flask, request, jsonify
+from rag import generate_response
 
-app = FastAPI()
+app = Flask(__name__)
 
-class ChatRequest(BaseModel):
-    message: str
+@app.route("/chat", methods=["POST"])
+def chat():
+    data = request.json
+    user_query = data.get("message")
 
-@app.get("/")
-def health():
-    return {"status": "ok"}
+    if not user_query:
+        return jsonify({"reply": "Please enter a valid query."})
 
-@app.post("/chat")
-def chat(req: ChatRequest):
-    reply = answer(req.message)
-    return {"reply": reply}
+    reply = generate_response(user_query)
+
+    return jsonify({"reply": reply})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
