@@ -1,6 +1,7 @@
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
+from langchain.embeddings import HuggingFaceEmbeddings
+
 import json
 import os
 
@@ -39,3 +40,4 @@ def create_vector_store(data):
 if __name__ == "__main__":
     data = load_scraped_data("scraped_data.json")
     create_vector_store(data)
+
