@@ -1,6 +1,6 @@
 from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
-from openai import OpenAI
+from langchain.embeddings import HuggingFaceEmbeddings
+
 from guardrails import classify_query
 
 EMBEDDING_MODEL = OpenAIEmbeddings(model="text-embedding-3-large")
