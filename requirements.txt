@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+flask
 langchain==0.1.17
 faiss-cpu
 sentence-transformers
